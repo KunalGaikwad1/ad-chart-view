@@ -1,0 +1,9 @@
+@import "tailwindcss/preflight";
+@tailwind utilities;
+@tailwind utilities;
+
+html,
+body,
+#__next {
+  height: 100%;
+}
