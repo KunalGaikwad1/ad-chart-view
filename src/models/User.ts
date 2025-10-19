@@ -1,25 +1,17 @@
-import mongoose, { Document, Schema } from "mongoose";
+import { Schema, model, models } from "mongoose";
 
-export interface IUser extends Document {
-  uid: string; // firebase uid
-  email: string;
-  name?: string;
-  phone?: string;
-  currentSessionId?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const UserSchema = new Schema<IUser>(
+const UserSchema = new Schema(
   {
-    uid: { type: String, required: true, unique: true },
-    email: { type: String, required: true, index: true },
-    name: { type: String },
-    phone: { type: String },
-    currentSessionId: { type: String },
+    name: String,
+    email: { type: String, required: true, unique: true },
+    photoURL: String,
+    phoneNumber: String,
+    role: { type: String, default: "user" },
+    sessionToken: String, // 🔹 store active session ID
   },
   { timestamps: true }
 );
 
-export default (mongoose.models.User as mongoose.Model<IUser>) ||
-  mongoose.model<IUser>("User", UserSchema);
+const User = models.User || model("User", UserSchema);
+
+export default User;

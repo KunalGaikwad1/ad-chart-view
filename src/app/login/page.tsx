@@ -6,23 +6,29 @@ import {
   sendPhoneOtp,
   confirmOtpAndLink,
   onAuthChanged,
+  firebaseSignOut,
 } from "../../firebase/client";
 import { useRouter } from "next/navigation";
 import { getIdToken } from "firebase/auth";
 import PhoneModal from "@/components/PhoneModal";
+
+// helper to create unique session token for device
+function generateSessionToken() {
+  return crypto.randomUUID();
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [verificationId, setVerificationId] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState<string>("");
 
   useEffect(() => onAuthChanged(setUser), []);
 
   async function startGoogleLogin() {
     try {
       const result = await signInWithGooglePopup();
-      // user is signed in with Google at this point
       setShowPhoneModal(true);
     } catch (err) {
       console.error("Google sign-in error:", err);
@@ -32,6 +38,7 @@ export default function LoginPage() {
 
   async function handleSendOtp(phone: string) {
     try {
+      setPhoneNumber(phone);
       const vId = await sendPhoneOtp(phone);
       setVerificationId(vId);
       return true;
@@ -46,23 +53,44 @@ export default function LoginPage() {
 
   async function handleConfirmOtp(code: string) {
     if (!verificationId) throw new Error("No verificationId");
+
     try {
+      // ✅ Step 1: Confirm OTP and link with Firebase user
       const linkResult = await confirmOtpAndLink(verificationId, code);
-      // phone successfully linked; now create server session and upsert user into MongoDB
-      const idToken = await getIdToken(auth.currentUser!, true);
-      // call server to create session and upsert user
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error("No user authenticated.");
+
+      // ✅ Step 2: Generate sessionToken for this device
+      const sessionToken = generateSessionToken();
+
+      // ✅ Step 3: Get Firebase ID Token for secure server verification
+      const idToken = await getIdToken(currentUser, true);
+
+      // ✅ Step 4: Send user details to backend for upsert
       const res = await fetch("/api/users/upsert", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${idToken}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          email: currentUser.email,
+          name: currentUser.displayName,
+          photoURL: currentUser.photoURL,
+          phoneNumber,
+          sessionToken, // store unique device session
+        }),
       });
+
       if (!res.ok) throw new Error("Server upsert failed");
       const payload = await res.json();
-      // server will set a cookie for session; check if admin
-      if (payload.isAdmin) {
+
+      // ✅ Step 5: Save session locally
+      localStorage.setItem("sessionToken", payload.user.sessionToken);
+      localStorage.setItem("userEmail", payload.user.email);
+
+      // ✅ Step 6: Redirect based on role
+      if (payload.user.role === "admin") {
         router.push("/admin");
       } else {
         router.push("/");
@@ -70,6 +98,7 @@ export default function LoginPage() {
     } catch (err: any) {
       console.error("confirm otp error", err);
       alert("OTP confirmation failed: " + (err.message || err));
+      await firebaseSignOut();
     }
   }
 
